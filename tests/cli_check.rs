@@ -337,3 +337,52 @@ fn check_json_all_passes() {
     assert_eq!(v["checked"], "all");
     assert_eq!(v["violations"].as_array().unwrap().len(), 0);
 }
+
+#[test]
+fn inter_hunk_context_config_adds_no_context_lines() {
+    let f = repo();
+    f.write(
+        "ctx.rs",
+        "fn a() {}\n// TODO: between\nfn b() {}\nfn c() {}\n",
+    );
+    f.commit("ctx");
+    f.git(&["checkout", "-q", "main"]);
+    f.git(&["merge", "-q", "--ff-only", "feat"]);
+    f.git(&["checkout", "-q", "feat"]);
+    f.git(&["config", "diff.interHunkContext", "5"]);
+    f.write(
+        "ctx.rs",
+        "fn a2() {}\n// TODO: between\nfn b() {}\nfn c2() {}\n",
+    );
+    f.commit("edit around the old TODO");
+    let r = check(&f, &[]);
+    assert_code(&r, 0);
+    assert!(!r.stdout.contains("between"), "{}", r.stdout);
+}
+
+#[cfg(unix)]
+#[test]
+fn untracked_symlink_is_not_read_through() {
+    let f = repo();
+    let outside = tempfile::tempdir().unwrap();
+    let target = outside.path().join("t.rs");
+    std::fs::write(&target, "// TODO: outside\n").unwrap();
+    std::os::unix::fs::symlink(&target, f.path().join("link.rs")).unwrap();
+    f.write("real.rs", "// TODO: real\n");
+    let r = check(&f, &[]);
+    assert_code(&r, 1);
+    assert!(r.stdout.contains("real.rs:1:4"), "{}", r.stdout);
+    assert!(!r.stdout.contains("link.rs"), "{}", r.stdout);
+    assert!(!r.stdout.contains("outside"), "{}", r.stdout);
+}
+
+#[cfg(unix)]
+#[test]
+fn staged_name_with_stage_like_prefix() {
+    let f = repo();
+    f.write("1:x.rs", "// TODO: colon\n");
+    f.git(&["add", "1:x.rs"]);
+    let r = check(&f, &["--staged"]);
+    assert_code(&r, 1);
+    assert!(r.stdout.contains("1:x.rs:1:4: TODO colon"), "{}", r.stdout);
+}

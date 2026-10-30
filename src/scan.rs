@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 /// Files larger than this are skipped.
-const MAX_BYTES: u64 = 2 * 1024 * 1024;
+pub const MAX_BYTES: u64 = 2 * 1024 * 1024;
 /// A NUL in this many leading bytes marks a file as binary.
 const BINARY_PROBE: usize = 8 * 1024;
 /// Directories whose contents are never ours.

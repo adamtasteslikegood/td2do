@@ -206,6 +206,8 @@ pub fn added_lines(
         "--no-textconv",
         "--src-prefix=a/",
         "--dst-prefix=b/",
+        // No unchanged lines between hunks, whatever `diff.interHunkContext` says.
+        "--inter-hunk-context=0",
     ];
     if staged {
         args.push("--cached");
@@ -218,7 +220,16 @@ pub fn added_lines(
             let Ok(name) = std::str::from_utf8(name) else {
                 continue;
             };
-            let Ok(bytes) = std::fs::read(root.join(name)) else {
+            // Never read through a symlink or a special file, nor a file the
+            // scan skips for size anyway (ruling R11).
+            let full = root.join(name);
+            let Ok(meta) = std::fs::symlink_metadata(&full) else {
+                continue;
+            };
+            if !meta.is_file() || meta.len() > crate::scan::MAX_BYTES {
+                continue;
+            }
+            let Ok(bytes) = std::fs::read(&full) else {
                 continue;
             };
             let count = bytes.iter().filter(|b| **b == b'\n').count() + 1;
@@ -228,31 +239,49 @@ pub fn added_lines(
     Ok(added)
 }
 
-/// The content of `path` in the index.
+/// The content of `path` in the index (stage 0, so a name such as `1:x.rs` is
+/// never read as a stage number; ruling R12).
 pub fn index_content(root: &Path, path: &Path) -> Result<Vec<u8>> {
-    let spec = format!(":{}", path.to_string_lossy());
+    let spec = format!(":0:{}", path.to_string_lossy());
     git_ok(root, &["cat-file", "blob", &spec])
         .with_context(|| format!("reading {} from the index", path.display()))
 }
 
 /// Reads `git diff -U0` output: the `+++ b/<path>` header names the file and
-/// each `@@ -a,b +c,d @@` header adds lines c..c+d. Content lines are skipped by
-/// count, so a line that looks like a header is never taken for one.
+/// each `@@ -a,b +c,d @@` hunk that follows holds b old and d new lines. Only
+/// the `+` lines count as added; a ` ` context line (which git puts inside a
+/// hunk when `diff.interHunkContext` merges two) only moves the new-side line
+/// number. Content lines are consumed by count, so a line that looks like a
+/// header is never taken for one.
 fn parse_diff(diff: &[u8]) -> HashMap<PathBuf, BTreeSet<usize>> {
     let mut added: HashMap<PathBuf, BTreeSet<usize>> = HashMap::new();
     let mut current: Option<PathBuf> = None;
-    // Content lines left in the current hunk.
-    let mut pending = 0usize;
+    // Old and new lines left in the current hunk, and the next new-side line number.
+    let (mut old_left, mut new_left, mut new_line) = (0usize, 0usize, 0usize);
     for line in diff.split(|b| *b == b'\n') {
-        if pending > 0 {
+        if old_left > 0 || new_left > 0 {
             match line.first() {
-                Some(b'+' | b'-' | b' ') => {
-                    pending -= 1;
+                Some(b'+') if new_left > 0 => {
+                    if let Some(p) = &current {
+                        added.entry(p.clone()).or_default().insert(new_line);
+                    }
+                    new_line += 1;
+                    new_left -= 1;
+                    continue;
+                }
+                Some(b'-') if old_left > 0 => {
+                    old_left -= 1;
+                    continue;
+                }
+                Some(b' ') if old_left > 0 && new_left > 0 => {
+                    new_line += 1;
+                    old_left -= 1;
+                    new_left -= 1;
                     continue;
                 }
                 // `\ No newline at end of file`
                 Some(b'\\') => continue,
-                _ => pending = 0,
+                _ => (old_left, new_left) = (0, 0),
             }
         }
         if let Some(rest) = line.strip_prefix(b"+++ ") {
@@ -260,17 +289,10 @@ fn parse_diff(diff: &[u8]) -> HashMap<PathBuf, BTreeSet<usize>> {
             if let Some(p) = &current {
                 added.entry(p.clone()).or_default();
             }
-        } else if let Some(rest) = line.strip_prefix(b"@@ ") {
-            let Some((old, new)) = hunk_counts(rest) else {
-                continue;
-            };
-            pending = old + new.1;
-            if let Some(p) = &current {
-                added
-                    .entry(p.clone())
-                    .or_default()
-                    .extend(new.0..new.0 + new.1);
-            }
+        } else if let Some(rest) = line.strip_prefix(b"@@ ")
+            && let Some((old, (start, count))) = hunk_counts(rest)
+        {
+            (old_left, new_left, new_line) = (old, count, start);
         }
     }
     added
@@ -389,6 +411,15 @@ mod tests {
         assert_eq!(got[Path::new("y.rs")], lines(&[1]));
         let got = parse_diff(b"+++ b/z.rs\n@@ -1,2 +1,0 @@\n-a\n-b\n");
         assert!(got.get(Path::new("z.rs")).is_none_or(|s| s.is_empty()));
+    }
+
+    #[test]
+    fn context_lines_inside_a_hunk_are_not_added() {
+        // What `diff.interHunkContext` produces: one hunk with unchanged lines inside.
+        let got = parse_diff(
+            b"+++ b/x.rs\n@@ -1,4 +1,5 @@\n-one\n+ONE\n two\n three\n-four\n+FOUR\n+five\n\\ No newline at end of file\n",
+        );
+        assert_eq!(got[Path::new("x.rs")], lines(&[1, 4, 5]));
     }
 
     #[test]
