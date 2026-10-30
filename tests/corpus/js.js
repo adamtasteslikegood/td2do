@@ -7,3 +7,5 @@ const todoList = []; // listing
 // second line
 /* multi
    * TODO star-less*/
+const bad = "unterminated
+// TODO: y

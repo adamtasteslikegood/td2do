@@ -348,8 +348,12 @@ impl<'a> Lexer<'a> {
         match delim {
             StrDelim::Plain(quote) => {
                 let escapes = self.lang.backslash_escapes(quote);
+                let one_line = self.lang.string_ends_at_newline(quote);
                 self.bump_bytes(quote.len());
                 while !self.rest().is_empty() {
+                    if one_line && self.rest().starts_with('\n') {
+                        return;
+                    }
                     if escapes && self.rest().starts_with('\\') {
                         self.bump();
                         self.bump();
@@ -656,8 +660,25 @@ mod tests {
 
     #[test]
     fn unterminated_string_runs_to_end_of_file() {
-        assert!(comments(lang_for("x.js"), "let s = \"abc\n// TODO\n").is_empty());
+        assert!(comments(lang_for("x.js"), "let s = `abc\n// TODO\n").is_empty());
+        assert!(comments(lang_for("x.sh"), "echo \"abc\n# TODO\n").is_empty());
+        assert!(comments(lang_for("x.rs"), "let s = \"abc\n// TODO\n").is_empty());
         assert!(comments(lang_for("x.py"), "s = '''abc\n# TODO\n").is_empty());
+    }
+
+    #[test]
+    fn single_line_quotes_end_at_the_line_end() {
+        let found = comments(lang_for("x.js"), "let s = \"abc\n// TODO: y\n");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].start_line, 2);
+        // a backslash-newline continues the string
+        assert!(comments(lang_for("x.js"), "let s = \"abc\\\n// TODO\"\n").is_empty());
+        // a stray apostrophe does not flip the pairing after it
+        let found = comments(
+            lang_for("x.ts"),
+            "<p>Don't</p>\n// a\nlet t = 'x // TODO';\n",
+        );
+        assert_eq!(found.len(), 1);
     }
 
     #[test]

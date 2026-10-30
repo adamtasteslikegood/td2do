@@ -415,6 +415,32 @@ impl Lang {
         )
     }
 
+    /// Whether a `Plain` string opened by `delim` ends at an unescaped line
+    /// end, so a stray quote (the apostrophe in JSX text, a regex literal)
+    /// cannot swallow the rest of the file. Only `"` and `'` qualify; triple
+    /// quotes, backticks and raw strings may span lines. Rust `"` strings and
+    /// those of Shell, Ruby, PHP, SQL and YAML are multi-line by design.
+    pub fn string_ends_at_newline(&self, delim: &str) -> bool {
+        matches!(delim, "\"" | "'")
+            && matches!(
+                self.name,
+                "JavaScript"
+                    | "TypeScript"
+                    | "Python"
+                    | "C"
+                    | "C++"
+                    | "C#"
+                    | "Java"
+                    | "Kotlin"
+                    | "Swift"
+                    | "Go"
+                    | "CSS/SCSS"
+                    | "Lua"
+                    | "TOML"
+                    | "Dockerfile/Makefile"
+            )
+    }
+
     /// Whether a backslash outside strings escapes the next character
     /// (`\#`, `\'` in shell).
     pub fn code_backslash_escapes(&self) -> bool {
