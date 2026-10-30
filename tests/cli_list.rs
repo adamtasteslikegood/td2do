@@ -143,3 +143,22 @@ fn bare_td2do_is_list() {
     let bare = td2do().arg("-C").arg(f.path()).output().unwrap();
     assert_eq!(String::from_utf8(bare.stdout).unwrap(), out(&f, &["list"]));
 }
+
+#[test]
+fn list_into_closed_pipe_does_not_panic() {
+    let f = repo();
+    let mut child = std::process::Command::new(assert_cmd::cargo::cargo_bin("td2do"))
+        .arg("-C")
+        .arg(f.path())
+        .arg("list")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    // Close the read end before td2do writes, so its write gets EPIPE.
+    drop(child.stdout.take());
+    let out = child.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!stderr.contains("panicked"), "{stderr}");
+    assert_eq!(out.status.code(), Some(0), "{stderr}");
+}

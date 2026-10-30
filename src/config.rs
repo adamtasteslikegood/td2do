@@ -8,8 +8,6 @@ pub const CONFIG_FILE: &str = ".td2do.toml";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
-// Consumed by later tasks.
-#[allow(dead_code)]
 pub enum Level {
     Fail,
     Warn,
@@ -18,7 +16,6 @@ pub enum Level {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-#[allow(dead_code)]
 pub struct CheckConfig {
     pub base: Option<String>,
     pub duplicate_text: Level,
@@ -35,7 +32,6 @@ impl Default for CheckConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-#[allow(dead_code)]
 pub struct Config {
     pub tags: Vec<String>,
     pub label: String,

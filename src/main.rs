@@ -1,3 +1,4 @@
+mod check;
 mod config;
 mod git;
 mod lang;
@@ -13,7 +14,6 @@ use std::process::ExitCode;
 
 /// Exit codes: 0 success, 1 check failed, 2 usage or config error.
 #[derive(Clone, Copy)]
-#[allow(dead_code)] // CheckFailed is used by `check` in a later task
 pub enum Exit {
     Ok = 0,
     CheckFailed = 1,
@@ -76,12 +76,28 @@ struct ListArgs {
     color: ColorWhen,
 }
 
+#[derive(Args)]
+struct CheckArgs {
+    /// Machine-readable output
+    #[arg(long)]
+    json: bool,
+    /// Compare with this ref [default: check.base, else origin/HEAD's branch, else main]
+    #[arg(long, value_name = "REF")]
+    base: Option<String>,
+    /// Compare with the index instead of the working tree (for a pre-commit hook)
+    #[arg(long)]
+    staged: bool,
+    /// Check every TODO, not only new ones
+    #[arg(long)]
+    all: bool,
+}
+
 #[derive(Subcommand)]
 enum Command {
     /// List every TODO comment (the default)
     List(ListArgs),
     /// Check that new TODOs link to issues
-    Check(Common),
+    Check(CheckArgs),
     /// Set up the config, hook and CI step
     Init(Common),
 }
@@ -102,8 +118,9 @@ fn run(cli: &Cli) -> anyhow::Result<Exit> {
     match &cli.command {
         None => list(&repo, &ListArgs::default()),
         Some(Command::List(args)) => list(&repo, args),
-        // Later tasks fill these in; for now they succeed silently.
-        Some(Command::Check(_)) | Some(Command::Init(_)) => Ok(Exit::Ok),
+        Some(Command::Check(args)) => check(&repo, args),
+        // A later task fills this in; for now it succeeds silently.
+        Some(Command::Init(_)) => Ok(Exit::Ok),
     }
 }
 
@@ -144,6 +161,78 @@ fn list(repo: &scan::Repo, args: &ListArgs) -> anyhow::Result<Exit> {
             output::render_plain(&result.todos)
         }
     };
-    print!("{text}");
+    output::print(&text)?;
     Ok(Exit::Ok)
+}
+
+fn check(repo: &scan::Repo, args: &CheckArgs) -> anyhow::Result<Exit> {
+    let base = args
+        .base
+        .clone()
+        .or_else(|| repo.config.check.base.clone())
+        .unwrap_or_else(|| git::default_base(&repo.root));
+    let mut todos = scan::scan(repo)?.todos;
+    // `--all` alone needs no diff, so it works without the base's history.
+    let added = if args.all && !args.staged {
+        None
+    } else {
+        let merge_base = git::merge_base(&repo.root, &base)?;
+        Some(git::added_lines(&repo.root, &merge_base, args.staged)?)
+    };
+    if args.staged
+        && let Some(added) = &added
+    {
+        // Files the index changes are checked as staged, not as on disk.
+        todos.retain(|t| !added.contains_key(&t.path));
+        for path in added.keys().filter(|p| lang::for_path(p).is_some()) {
+            let src = git::index_content(&repo.root, path)?;
+            todos.extend(scan::scan_source(repo, path, &src));
+        }
+        todos.sort_by(|a, b| (&a.path, a.line, a.col).cmp(&(&b.path, b.line, b.col)));
+    }
+    let is_new = |t: &todo::Todo| match &added {
+        Some(added) if !args.all => added
+            .get(&t.path)
+            .is_some_and(|lines| lines.range(t.line..=t.last_line).next().is_some()),
+        _ => true,
+    };
+    let violations = check::run(&todos, &is_new, &repo.config.check);
+    let failed = violations
+        .iter()
+        .any(|v| v.severity == check::Severity::Fail);
+    let checked = if args.all { "all" } else { "new" };
+    let text = if args.json {
+        let list: Vec<_> = violations.iter().map(check::Violation::to_json).collect();
+        let doc = serde_json::json!({
+            "schema": 1,
+            "passed": !failed,
+            "checked": checked,
+            "base": base,
+            "violations": list,
+        });
+        format!("{}\n", serde_json::to_string_pretty(&doc)?)
+    } else {
+        let mut text = String::new();
+        for v in &violations {
+            let place = output::render_plain(std::slice::from_ref(&v.todo));
+            text.push_str(&format!(
+                "{}  [{} {}] {}\n",
+                place.trim_end(),
+                v.severity.name(),
+                v.rule.name(),
+                v.message()
+            ));
+        }
+        let count = |s| violations.iter().filter(|v| v.severity == s).count();
+        let scope = if args.all { "TODOs" } else { "new TODOs" };
+        text.push_str(&format!(
+            "td2do check: {} {scope}, {} failed, {} warnings (base {base})\n",
+            todos.iter().filter(|t| is_new(t)).count(),
+            count(check::Severity::Fail),
+            count(check::Severity::Warn),
+        ));
+        text
+    };
+    output::print(&text)?;
+    Ok(if failed { Exit::CheckFailed } else { Exit::Ok })
 }

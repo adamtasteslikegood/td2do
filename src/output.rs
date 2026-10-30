@@ -104,6 +104,19 @@ pub fn render_terminal(todos: &[Todo], color: bool) -> String {
     out
 }
 
+/// Writes `text` to stdout. A reader that closes early (`td2do list | head`)
+/// is not an error (ruling R10).
+pub fn print(text: &str) -> std::io::Result<()> {
+    write_all_or_closed(&mut std::io::stdout().lock(), text)
+}
+
+fn write_all_or_closed(w: &mut impl std::io::Write, text: &str) -> std::io::Result<()> {
+    match w.write_all(text.as_bytes()).and_then(|()| w.flush()) {
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+        other => other,
+    }
+}
+
 pub fn todo_json(t: &Todo) -> Value {
     json!({
         "file": path_string(&t.path),
@@ -115,4 +128,28 @@ pub fn todo_json(t: &Todo) -> Value {
         "text": t.text,
         "fingerprint": t.fingerprint,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Closed;
+
+    impl std::io::Write for Closed {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::ErrorKind::BrokenPipe.into())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn closed_pipe_is_not_an_error() {
+        assert!(write_all_or_closed(&mut Closed, "x\n").is_ok());
+        let mut buf = Vec::new();
+        write_all_or_closed(&mut buf, "a\nb\n").unwrap();
+        assert_eq!(buf, b"a\nb\n");
+    }
 }

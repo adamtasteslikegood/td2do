@@ -103,7 +103,6 @@ pub fn scan_with_threads(repo: &Repo, threads: usize) -> Result<ScanResult> {
 /// The TODOs in `src`, taken as the content of `path` (relative to the repo root).
 /// Used for content that is not on disk, such as the index. It applies the same
 /// path, size and binary rules as a full scan (ruling R8).
-#[allow(dead_code)] // called by `check` in a later task
 pub fn scan_source(repo: &Repo, path: &Path, src: &[u8]) -> Vec<Todo> {
     let ignore = ignore_set(&repo.config.ignore).unwrap_or_else(|_| GlobSet::empty());
     if skipped_by_path(path, &ignore) || src.len() as u64 > MAX_BYTES || is_binary(src) {
@@ -132,7 +131,7 @@ fn parse_source(repo: &Repo, language: &lang::Lang, path: &Path, src: &[u8]) -> 
     let path = slash_path(path);
     let mut todos = Vec::new();
     for comment in lexer::comments(language, text) {
-        for (line, col, tag, reference, extra, body) in
+        for (line, col, tag, reference, extra, body, last_line) in
             todo::parse_comment(&comment, &repo.config.tags, repo.slug.is_some())
         {
             let fingerprint = todo::fingerprint(slug, &tag, &body);
@@ -145,6 +144,7 @@ fn parse_source(repo: &Repo, language: &lang::Lang, path: &Path, src: &[u8]) -> 
                 extra,
                 text: body,
                 fingerprint,
+                last_line,
             });
         }
     }

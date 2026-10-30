@@ -26,10 +26,20 @@ pub struct Todo {
     pub extra: Option<String>,
     pub text: String,
     pub fingerprint: String,
+    /// The last line of the TODO: `line`, or its last continuation line.
+    pub last_line: usize,
 }
 
-/// One TODO found in a comment: line, column, tag, REF, extra, text.
-pub type Parsed = (usize, usize, String, Option<Ref>, Option<String>, String);
+/// One TODO found in a comment: line, column, tag, REF, extra, text, last line.
+pub type Parsed = (
+    usize,
+    usize,
+    String,
+    Option<Ref>,
+    Option<String>,
+    String,
+    usize,
+);
 
 /// The TODOs in one comment.
 ///
@@ -50,7 +60,7 @@ pub fn parse_comment(c: &Comment, tags: &[String], github_origin: bool) -> Vec<P
         match tag_at(body, tags) {
             Some((tag, rest)) => {
                 let (reference, extra, text) = split_rest(rest, github_origin);
-                out.push((l.line, col, tag.to_string(), reference, extra, text));
+                out.push((l.line, col, tag.to_string(), reference, extra, text, l.line));
                 open = true;
             }
             None if open => {
@@ -59,6 +69,7 @@ pub fn parse_comment(c: &Comment, tags: &[String], github_origin: bool) -> Vec<P
                         last.5.push(' ');
                     }
                     last.5.push_str(body.trim_end());
+                    last.6 = l.line;
                 }
             }
             None => {}
@@ -262,7 +273,8 @@ mod tests {
                     number: 12
                 }),
                 None,
-                "retry".to_string()
+                "retry".to_string(),
+                1
             )]
         );
     }
@@ -363,6 +375,7 @@ mod tests {
         let found = parse(&["TODO: first", "second"]);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].5, "first second");
+        assert_eq!((found[0].0, found[0].6), (1, 2));
     }
 
     #[test]
@@ -370,6 +383,7 @@ mod tests {
         let found = parse(&["TODO: one", "more", "FIXME: two"]);
         assert_eq!(found.len(), 2);
         assert_eq!(found[0].5, "one more");
+        assert_eq!(found[0].6, 2);
         assert_eq!(
             (found[1].0, found[1].2.as_str(), found[1].5.as_str()),
             (3, "FIXME", "two")
