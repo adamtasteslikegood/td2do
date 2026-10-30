@@ -1,0 +1,6 @@
+# TODO yaml
+key: value # FIXME inline
+url: http://x/#todo
+msg: "a # TODO in dq"
+note: don't # HACK apostrophe
+other: 'it''s # BUG'

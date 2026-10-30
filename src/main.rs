@@ -1,4 +1,6 @@
 mod config;
+mod lang;
+mod lexer;
 
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;

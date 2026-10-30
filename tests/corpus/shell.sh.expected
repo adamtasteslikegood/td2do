@@ -1,0 +1,5 @@
+1|!/bin/sh
+4| count args
+5| len
+9| real FIXME
+14| BUG last
