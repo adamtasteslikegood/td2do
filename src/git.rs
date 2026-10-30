@@ -128,6 +128,15 @@ pub fn default_base(root: &Path) -> String {
     .unwrap_or_else(|| "main".to_string())
 }
 
+/// Where the pre-commit hook lives (right for linked worktrees too), or `None`
+/// when git cannot say.
+pub fn hook_path(root: &Path) -> Option<PathBuf> {
+    let out = git_ok(root, &["rev-parse", "--git-path", "hooks/pre-commit"]).ok()?;
+    let rel = String::from_utf8(out).ok()?;
+    let rel = rel.trim_end_matches(['\n', '\r']);
+    (!rel.is_empty()).then(|| root.join(rel))
+}
+
 #[derive(Debug)]
 pub enum BaseError {
     /// The base does not resolve to a commit, or shares no history with HEAD

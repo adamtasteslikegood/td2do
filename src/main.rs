@@ -1,6 +1,7 @@
 mod check;
 mod config;
 mod git;
+mod init;
 mod lang;
 mod lexer;
 mod output;
@@ -41,10 +42,13 @@ struct Cli {
 }
 
 #[derive(Args, Clone, Copy)]
-struct Common {
+struct InitArgs {
     /// Machine-readable output
     #[arg(long)]
     json: bool,
+    /// Write everything without asking
+    #[arg(long)]
+    yes: bool,
 }
 
 #[derive(Clone, Copy, Default, ValueEnum)]
@@ -99,7 +103,7 @@ enum Command {
     /// Check that new TODOs link to issues
     Check(CheckArgs),
     /// Set up the config, hook and CI step
-    Init(Common),
+    Init(InitArgs),
 }
 
 fn main() -> ExitCode {
@@ -119,8 +123,7 @@ fn run(cli: &Cli) -> anyhow::Result<Exit> {
         None => list(&repo, &ListArgs::default()),
         Some(Command::List(args)) => list(&repo, args),
         Some(Command::Check(args)) => check(&repo, args),
-        // A later task fills this in; for now it succeeds silently.
-        Some(Command::Init(_)) => Ok(Exit::Ok),
+        Some(Command::Init(args)) => init::run(&cli.dir, args.yes, args.json),
     }
 }
 

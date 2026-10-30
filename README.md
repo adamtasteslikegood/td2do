@@ -6,7 +6,7 @@ A TODO is **tracked** when it points to an open issue: `TODO(gh#123): retry on 4
 shows whether the work is already recorded; `td2do add` writes the comment and files the issue once; `td2do check` fails a branch that adds a
 TODO with no issue.
 
-**Status:** design decided, nothing built yet. See [the design spec](docs/specs/2026-10-29-td2do-design.md).
+**Status:** phase 1: list, check, init. See [the design spec](docs/specs/2026-10-29-td2do-design.md).
 
 ## Planned commands
 
