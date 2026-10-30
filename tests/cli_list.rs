@@ -162,3 +162,14 @@ fn list_into_closed_pipe_does_not_panic() {
     assert!(!stderr.contains("panicked"), "{stderr}");
     assert_eq!(out.status.code(), Some(0), "{stderr}");
 }
+
+#[test]
+fn list_tag_filter_keeps_custom_tag_case() {
+    let f = Fixture::new();
+    f.write(".td2do.toml", "tags = [\"@todo\", \"TODO\"]\n");
+    f.write("a.rs", "// @todo(gh#1): custom\n// TODO: plain\n");
+    let s = out(&f, &["list", "--tag", "@todo"]);
+    assert_eq!(s, "a.rs:1:4: @todo(gh#1) custom\n");
+    let s = out(&f, &["list", "--tag", "todo"]);
+    assert_eq!(s, "a.rs:2:4: TODO plain\n");
+}

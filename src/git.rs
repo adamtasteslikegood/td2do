@@ -108,10 +108,27 @@ fn git_ok(root: &Path, args: &[&str]) -> Result<Vec<u8>> {
     Ok(out.stdout)
 }
 
-/// The branch to compare with when none is configured: what `origin/HEAD`
-/// points to (e.g. `origin/main`), else `main`.
-pub fn default_base(root: &Path) -> String {
+/// Whether `rev` names a commit.
+pub fn resolves(root: &Path, rev: &str) -> bool {
+    let commit = format!("{rev}^{{commit}}");
     git(
+        root,
+        &[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "--end-of-options",
+            &commit,
+        ],
+    )
+    .is_ok_and(|o| o.status.success())
+}
+
+/// The branch to compare with when none is configured: the first of
+/// `origin/HEAD`'s target, `origin/main`, `origin/master`, `main` and `master`
+/// that names a commit; `main` when none does (ruling R13).
+pub fn default_base(root: &Path) -> String {
+    let origin_head = git(
         root,
         &[
             "symbolic-ref",
@@ -124,8 +141,20 @@ pub fn default_base(root: &Path) -> String {
     .filter(|o| o.status.success())
     .and_then(|o| String::from_utf8(o.stdout).ok())
     .map(|s| s.trim().to_string())
-    .filter(|s| !s.is_empty())
-    .unwrap_or_else(|| "main".to_string())
+    .filter(|s| !s.is_empty());
+    origin_head
+        .into_iter()
+        .chain(["origin/main", "origin/master", "main", "master"].map(String::from))
+        .find(|rev| resolves(root, rev))
+        .unwrap_or_else(|| "main".to_string())
+}
+
+/// The id of the empty tree in this repo's hash: what a branch with no
+/// commits yet is compared with.
+pub fn empty_tree(root: &Path) -> Result<String> {
+    // `output()` gives git an empty stdin.
+    let out = git_ok(root, &["hash-object", "-t", "tree", "--stdin"])?;
+    Ok(String::from_utf8_lossy(&out).trim().to_string())
 }
 
 /// Where the pre-commit hook lives (right for linked worktrees too), or `None`
@@ -213,6 +242,8 @@ pub fn added_lines(
         "--no-color",
         "--no-ext-diff",
         "--no-textconv",
+        // A `-diff` or `binary` attribute must not hide a file's lines (ruling R14).
+        "--text",
         "--src-prefix=a/",
         "--dst-prefix=b/",
         // No unchanged lines between hunks, whatever `diff.interHunkContext` says.

@@ -75,7 +75,7 @@ fn init_yes_writes_three() {
 }
 
 #[test]
-fn init_strips_origin_from_the_default_base() {
+fn init_keeps_origin_in_the_default_base() {
     let f = repo();
     f.git(&["update-ref", "refs/remotes/origin/trunk", "HEAD"]);
     f.git(&[
@@ -85,7 +85,68 @@ fn init_strips_origin_from_the_default_base() {
     ]);
     init(&f, &["--yes"]).assert().success();
     let config = std::fs::read_to_string(f.path().join(".td2do.toml")).unwrap();
-    assert!(config.contains("base = \"trunk\""), "{config}");
+    assert!(config.contains("base = \"origin/trunk\""), "{config}");
+}
+
+#[test]
+fn init_on_a_clone_writes_origin_main() {
+    let f = repo();
+    let dest = tempfile::tempdir().unwrap();
+    let clone = dest.path().join("c");
+    f.git(&[
+        "clone",
+        "-q",
+        &format!("file://{}", f.path().display()),
+        clone.to_str().unwrap(),
+    ]);
+    let out = init_in(&clone);
+    assert_eq!(out.status.code(), Some(0));
+    let config = std::fs::read_to_string(clone.join(".td2do.toml")).unwrap();
+    assert!(config.contains("\nbase = \"origin/main\""), "{config}");
+}
+
+#[test]
+fn init_without_a_base_comments_it_out() {
+    // No commits yet: no ref resolves.
+    let f = Fixture::new();
+    let out = init(&f, &["--yes"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(stdout.contains("check will use its default"), "{stdout}");
+    let config = std::fs::read_to_string(f.path().join(".td2do.toml")).unwrap();
+    assert!(config.contains("\n# base = \"main\"\n"), "{config}");
+    assert!(!config.contains("\nbase ="), "{config}");
+
+    // The hook's command works before the first commit.
+    f.write("a.rs", "// TODO: first\n");
+    f.git(&["add", "a.rs"]);
+    let check = |args: &[&str]| {
+        td2do()
+            .arg("-C")
+            .arg(f.path())
+            .arg("check")
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let o = check(&["--staged"]);
+    let stdout = String::from_utf8_lossy(&o.stdout);
+    assert_eq!(
+        o.status.code(),
+        Some(1),
+        "{stdout}{}",
+        String::from_utf8_lossy(&o.stderr)
+    );
+    assert!(stdout.contains("a.rs:1:4"), "{stdout}");
+    f.write("a.rs", "// TODO(gh#1): first\n");
+    f.git(&["add", "a.rs"]);
+    let o = check(&["--staged"]);
+    assert_eq!(
+        o.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&o.stderr)
+    );
 }
 
 #[test]

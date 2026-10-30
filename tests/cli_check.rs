@@ -386,3 +386,51 @@ fn staged_name_with_stage_like_prefix() {
     assert_code(&r, 1);
     assert!(r.stdout.contains("1:x.rs:1:4: TODO colon"), "{}", r.stdout);
 }
+
+#[test]
+fn unborn_head_counts_everything_as_added() {
+    let f = Fixture::new();
+    f.write("a.rs", "// TODO: staged\n");
+    f.git(&["add", "a.rs"]);
+    f.write("b.rs", "// TODO: untracked\n");
+    let r = check(&f, &["--staged"]);
+    assert_code(&r, 1);
+    assert!(r.stdout.contains("a.rs:1:4"), "{}", r.stdout);
+    assert!(!r.stdout.contains("b.rs"), "{}", r.stdout);
+    let r = check(&f, &[]);
+    assert_code(&r, 1);
+    assert!(r.stdout.contains("a.rs:1:4"), "{}", r.stdout);
+    assert!(r.stdout.contains("b.rs:1:4"), "{}", r.stdout);
+}
+
+#[test]
+fn master_without_a_remote_is_the_default_base() {
+    let f = Fixture::new();
+    f.git(&["remote", "remove", "origin"]);
+    f.git(&["symbolic-ref", "HEAD", "refs/heads/master"]);
+    f.write("old.rs", "// TODO: old\n");
+    f.commit("init");
+    f.git(&["checkout", "-q", "-b", "feat"]);
+    f.write("new.rs", "// TODO: new\n");
+    f.commit("add");
+    let r = check(&f, &[]);
+    assert_code(&r, 1);
+    assert!(r.stdout.contains("new.rs:1:4"), "{}", r.stdout);
+    assert!(!r.stdout.contains("old.rs"), "{}", r.stdout);
+    assert!(r.stdout.contains("(base master)"), "{}", r.stdout);
+}
+
+#[test]
+fn binary_attribute_does_not_hide_todos() {
+    let f = repo();
+    f.write(".gitattributes", "*.gen.rs -diff\n");
+    f.write("a.gen.rs", "fn a() {}\n// TODO: hidden\n");
+    f.commit("gen");
+    let r = check(&f, &[]);
+    assert_code(&r, 1);
+    assert!(
+        r.stdout.contains("a.gen.rs:2:4: TODO hidden"),
+        "{}",
+        r.stdout
+    );
+}

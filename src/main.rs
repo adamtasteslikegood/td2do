@@ -85,7 +85,7 @@ struct CheckArgs {
     /// Machine-readable output
     #[arg(long)]
     json: bool,
-    /// Compare with this ref [default: check.base, else origin/HEAD's branch, else main]
+    /// Compare with this ref [default: check.base, else the first of origin/HEAD's branch, origin/main, origin/master, main, master]
     #[arg(long, value_name = "REF")]
     base: Option<String>,
     /// Compare with the index instead of the working tree (for a pre-commit hook)
@@ -134,7 +134,6 @@ fn list(repo: &scan::Repo, args: &ListArgs) -> anyhow::Result<Exit> {
         .as_deref()
         .map(|g| globset::Glob::new(g).map(|g| g.compile_matcher()))
         .transpose()?;
-    let tags: Vec<String> = args.tag.iter().map(|t| t.to_uppercase()).collect();
     result.todos.retain(|t| {
         (!args.untracked || t.reference.is_none())
             && args.reference.as_deref().is_none_or(|want| {
@@ -143,7 +142,8 @@ fn list(repo: &scan::Repo, args: &ListArgs) -> anyhow::Result<Exit> {
             && glob
                 .as_ref()
                 .is_none_or(|g| g.is_match(output::path_string(&t.path)))
-            && (tags.is_empty() || tags.contains(&t.tag))
+            // Case-insensitive, so `--tag todo` and a custom `@todo` both work (ruling R15).
+            && (args.tag.is_empty() || args.tag.iter().any(|w| w.eq_ignore_ascii_case(&t.tag)))
     });
     let text = if args.json {
         let todos: Vec<_> = result.todos.iter().map(output::todo_json).collect();
@@ -179,8 +179,13 @@ fn check(repo: &scan::Repo, args: &CheckArgs) -> anyhow::Result<Exit> {
     let added = if args.all && !args.staged {
         None
     } else {
-        let merge_base = git::merge_base(&repo.root, &base)?;
-        Some(git::added_lines(&repo.root, &merge_base, args.staged)?)
+        // Before the first commit everything is added; there is no base to need.
+        let from = if git::resolves(&repo.root, "HEAD") {
+            git::merge_base(&repo.root, &base)?
+        } else {
+            git::empty_tree(&repo.root)?
+        };
+        Some(git::added_lines(&repo.root, &from, args.staged)?)
     };
     if args.staged
         && let Some(added) = &added

@@ -35,7 +35,10 @@ jobs:
 
 const AGENT_RULE_NOTE: &str = "agent rule: available in phase 2 (needs td2do find and add)";
 
-fn config_text(base: &str) -> String {
+/// The config init writes. `base_found` false leaves the `base` line
+/// commented out, so check falls back to its default.
+fn config_text(base: &str, base_found: bool) -> String {
+    let comment = if base_found { "" } else { "# " };
     format!(
         "\
 tags = [\"TODO\", \"FIXME\", \"HACK\", \"XXX\", \"BUG\"]
@@ -43,7 +46,7 @@ label = \"todo\"
 ignore = [\"docs/**\", \"**/*.snap\"]
 
 [check]
-base = \"{base}\"
+{comment}base = \"{base}\"
 duplicate_text = \"warn\"   # or \"fail\" / \"off\"
 "
     )
@@ -181,17 +184,23 @@ pub fn run(dir: &Path, yes: bool, json: bool) -> Result<Exit> {
     };
 
     // 1. The config.
+    // The base default_base found, as is, when it names a commit (ruling R13).
     let base = git::default_base(&root);
-    let base = base.strip_prefix("origin/").unwrap_or(&base);
+    let base_found = git::resolves(&root, &base);
     let config = root.join(".td2do.toml");
     if config.exists() {
         s.exists(".td2do.toml".into())?;
     } else {
+        if !base_found {
+            s.talk.say(&format!(
+                "no base branch found yet; the base line stays commented out and check will use its default ({base} once it exists)\n"
+            ))?;
+        }
         s.offer(NewFile {
             label: "the config",
             path: config,
             shown: ".td2do.toml".into(),
-            contents: &config_text(base),
+            contents: &config_text(&base, base_found),
             executable: false,
         })?;
     }
