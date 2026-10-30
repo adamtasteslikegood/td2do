@@ -1,6 +1,8 @@
 mod config;
+mod git;
 mod lang;
 mod lexer;
+mod scan;
 mod todo;
 
 use clap::{Args, Parser, Subcommand};
@@ -71,7 +73,13 @@ fn run(cli: &Cli) -> anyhow::Result<Exit> {
         .as_ref()
         .unwrap_or(&Command::List(Common { json: false }))
     {
+        // Task 5 prints the result; until then the scan only has to succeed.
+        Command::List(_) => {
+            let repo = scan::open(&cli.dir)?;
+            scan::scan(&repo)?;
+            Ok(Exit::Ok)
+        }
         // Later tasks fill these in; for now they succeed silently.
-        Command::List(_) | Command::Check(_) | Command::Init(_) => Ok(Exit::Ok),
+        Command::Check(_) | Command::Init(_) => Ok(Exit::Ok),
     }
 }

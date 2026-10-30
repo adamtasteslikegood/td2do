@@ -272,7 +272,7 @@ static DOCKER_MAKE: Lang = Lang {
 };
 
 /// Every language in the table.
-#[allow(dead_code)] // used by the tests now, and by the scanner in a later task
+#[allow(dead_code)] // read by the tests only
 pub static ALL: [&Lang; 22] = [
     &RUST,
     &C,
@@ -354,7 +354,6 @@ static BY_NAME: &[(&str, &Lang)] = &[
 
 /// The language of a file, by extension and then by exact file name. `None`
 /// means the file is skipped, never guessed at.
-#[allow(dead_code)] // used by the tests now, and by the scanner in a later task
 pub fn for_path(path: &Path) -> Option<&'static Lang> {
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
         let ext = ext.to_ascii_lowercase();

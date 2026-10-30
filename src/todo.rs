@@ -7,7 +7,6 @@ use std::path::PathBuf;
 
 /// An issue reference written in a TODO's parentheses.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)] // read by the scanner and `check` in later tasks
 pub enum Ref {
     /// `gh#123` or `gh:owner/repo#123` (and `#123` when `origin` is on GitHub).
     Gh { repo: Option<String>, number: u64 },
@@ -18,7 +17,6 @@ pub enum Ref {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)] // built by the scanner in Task 4
 pub struct Todo {
     pub path: PathBuf,
     pub line: usize,
@@ -38,7 +36,6 @@ pub type Parsed = (usize, usize, String, Option<Ref>, Option<String>, String);
 /// A tag starts a comment line (after whitespace) and is followed by `(`, `:`,
 /// whitespace or the end of the line (ruling R2). Following lines with no tag
 /// of their own continue its text until an empty line or another tag.
-#[allow(dead_code)] // called by the scanner in Task 4
 pub fn parse_comment(c: &Comment, tags: &[String], github_origin: bool) -> Vec<Parsed> {
     let mut out: Vec<Parsed> = Vec::new();
     // Whether the last TODO may still take continuation lines.
@@ -174,7 +171,6 @@ fn number(s: &str) -> Option<u64> {
 }
 
 /// `sha256(slug + tag + normalized text)`, as its first 16 hex characters.
-#[allow(dead_code)] // called by the scanner in Task 4
 pub fn fingerprint(slug: &str, tag: &str, text: &str) -> String {
     let mut hash = Sha256::new();
     hash.update(slug.as_bytes());
@@ -189,7 +185,6 @@ pub fn fingerprint(slug: &str, tag: &str, text: &str) -> String {
 
 /// Lowercases `text`, drops REFs and comment markers around it, and collapses
 /// whitespace.
-#[allow(dead_code)] // called by the scanner in Task 4
 pub fn normalize(text: &str) -> String {
     let mut words: Vec<String> = text
         .split_whitespace()

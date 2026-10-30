@@ -8,7 +8,6 @@ use std::collections::HashSet;
 
 /// One comment: a block, or a run of consecutive line comments.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)] // read by the tag parser in a later task
 pub struct Comment {
     /// Line of the first character of the comment marker, 1-based.
     pub start_line: usize,
@@ -17,7 +16,6 @@ pub struct Comment {
 
 /// One source line of a comment.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)] // read by the tag parser in a later task
 pub struct CommentLine {
     /// 1-based line number.
     pub line: usize,
@@ -32,7 +30,6 @@ pub struct CommentLine {
 ///
 /// `\r\n` is one line end (ruling R1): the text is lexed as its LF twin, so
 /// lines and columns match and no `\r` reaches a comment.
-#[allow(dead_code)] // called by the scanner in a later task
 pub fn comments(lang: &Lang, src: &str) -> Vec<Comment> {
     let src = if src.contains("\r\n") {
         Cow::Owned(src.replace("\r\n", "\n"))
