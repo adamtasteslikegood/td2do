@@ -101,13 +101,22 @@ pub fn scan_with_threads(repo: &Repo, threads: usize) -> Result<ScanResult> {
 }
 
 /// The TODOs in `src`, taken as the content of `path` (relative to the repo root).
-/// Used for content that is not on disk, such as the index.
+/// Used for content that is not on disk, such as the index. It applies the same
+/// path, size and binary rules as a full scan (ruling R8).
 #[allow(dead_code)] // called by `check` in a later task
 pub fn scan_source(repo: &Repo, path: &Path, src: &[u8]) -> Vec<Todo> {
+    let ignore = ignore_set(&repo.config.ignore).unwrap_or_else(|_| GlobSet::empty());
+    if skipped_by_path(path, &ignore) || src.len() as u64 > MAX_BYTES || is_binary(src) {
+        return Vec::new();
+    }
     let Some(language) = lang::for_path(path) else {
         return Vec::new();
     };
     parse_source(repo, language, path, src)
+}
+
+fn is_binary(bytes: &[u8]) -> bool {
+    bytes.iter().take(BINARY_PROBE).any(|b| *b == 0)
 }
 
 #[derive(Default)]
@@ -159,7 +168,7 @@ fn scan_file(repo: &Repo, matcher: &RegexMatcher, rel: &Path, out: &mut Outcome)
     let Ok(bytes) = std::fs::read(&full) else {
         return;
     };
-    if bytes.iter().take(BINARY_PROBE).any(|b| *b == 0) || !has_tag(matcher, &bytes) {
+    if is_binary(&bytes) || !has_tag(matcher, &bytes) {
         return;
     }
     out.todos.extend(parse_source(repo, language, rel, &bytes));
@@ -179,8 +188,10 @@ fn tag_matcher(tags: &[String]) -> Result<Option<RegexMatcher>> {
     if tags.is_empty() {
         return Ok(None);
     }
+    // No word boundaries: the parser decides what may follow a tag, and this
+    // pre-filter must accept everything the parser would.
     let alternatives: Vec<String> = tags.iter().map(|t| regex::escape(t)).collect();
-    let pattern = format!(r"\b(?:{})\b", alternatives.join("|"));
+    let pattern = format!("(?:{})", alternatives.join("|"));
     Ok(Some(
         RegexMatcher::new(&pattern).context("building the tag matcher")?,
     ))
@@ -483,6 +494,59 @@ mod tests {
         let r = scan_dir(f.path());
         assert_eq!(r.todos.len(), 1);
         assert_eq!(r.todos[0].text, "c");
+    }
+
+    #[test]
+    fn custom_tag_with_symbol_is_found() {
+        let f = Fixture::new();
+        f.write(".td2do.toml", "tags = [\"@todo\"]\n");
+        f.write("a.rs", "// @todo(gh#1): x\n");
+        let r = scan_dir(f.path());
+        assert_eq!(r.todos.len(), 1);
+        assert_eq!(r.todos[0].tag, "@todo");
+    }
+
+    #[test]
+    fn scan_source_applies_skip_rules() {
+        let f = Fixture::new();
+        f.write(".td2do.toml", "ignore = [\"gen/**\"]\n");
+        let repo = open(f.path()).unwrap();
+        let src = b"// TODO: x\n";
+        assert_eq!(scan_source(&repo, Path::new("src/x.rs"), src).len(), 1);
+        for skipped in [
+            "vendor/x.rs",
+            "a/node_modules/x.rs",
+            "gen/x.rs",
+            "x.min.js",
+            "Cargo.lock",
+        ] {
+            assert!(
+                scan_source(&repo, Path::new(skipped), src).is_empty(),
+                "{skipped}"
+            );
+        }
+        assert!(scan_source(&repo, Path::new("src/x.rs"), b"// TODO: x\n\0").is_empty());
+        let mut big = src.to_vec();
+        big.resize(2 * 1024 * 1024 + 1, b' ');
+        assert!(scan_source(&repo, Path::new("src/x.rs"), &big).is_empty());
+    }
+
+    #[test]
+    fn committed_file_is_found() {
+        let f = Fixture::new();
+        f.write("a.rs", "// TODO: committed\n");
+        f.commit("add");
+        assert_eq!(places(&scan_dir(f.path())), [("a.rs".to_string(), 1)]);
+    }
+
+    #[test]
+    fn committed_then_deleted_file_is_skipped() {
+        let f = Fixture::new();
+        f.write("gone.rs", "// TODO: gone\n");
+        f.write("kept.rs", "// TODO: kept\n");
+        f.commit("add");
+        std::fs::remove_file(f.path().join("gone.rs")).unwrap();
+        assert_eq!(places(&scan_dir(f.path())), [("kept.rs".to_string(), 1)]);
     }
 
     #[test]

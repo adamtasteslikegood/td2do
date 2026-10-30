@@ -54,6 +54,9 @@ impl Fixture {
     pub fn git(&self, args: &[&str]) -> String {
         let out = Command::new("git")
             .args(args)
+            // Keep the user's git configuration out of the tests.
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
             .current_dir(self.dir.path())
             .output()
             .unwrap();
