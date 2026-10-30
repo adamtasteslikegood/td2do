@@ -1,0 +1,6 @@
+# TODO toml
+a = "x # TODO"
+b = 'lit\' # FIXME real
+c = """
+# TODO in multiline
+"""

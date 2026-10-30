@@ -1,0 +1,2 @@
+# tests/corpus holds sample comments for the lexer tests; they are fixtures, not work to track.
+ignore = ["tests/corpus/**"]

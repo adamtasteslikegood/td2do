@@ -1,0 +1,9 @@
+1| TODO line one| continues here
+6| trailing note
+7| TODO block
+8| a /* b */ c
+9| doc FIXME
+10| after lifetime
+11| quote char
+12| slash char
+13|| HACK star| more|
